@@ -1,0 +1,161 @@
+!pip install opencv-python
+
+import cv2
+import numpy as np
+from matplotlib import pyplot as plt
+import ipywidgets as widgets
+from IPython.display import display, clear_output
+
+
+image_path = ''
+
+def handle_upload(change):
+    global image_path
+    uploaded_file = list(upload_button.value.values())[0]
+    image_path = '/content/' + uploaded_file['metadata']['name']
+    with open(image_path, 'wb') as f:
+        f.write(uploaded_file['content'])
+
+    from IPython.display import clear_output
+    clear_output(wait=True)
+
+    display(upload_button)
+    print("Image uploaded successfully!")
+    detect_plant_health_and_recommendations(image_path)
+
+import ipywidgets as widgets
+
+def detect_plant_health_and_recommendations(image_path):
+
+    if not image_path:
+        print("Error: No image path provided.")
+        return
+
+    image = cv2.imread(image_path)
+
+    if image is None:
+        print(f"Error: Could not load image from {image_path}. Please check the path.")
+        return
+
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+
+    healthy_lower = np.array([35, 50, 50])
+    healthy_upper = np.array([85, 255, 255])
+
+    unhealthy_yellow_lower = np.array([15, 50, 50])
+    unhealthy_yellow_upper = np.array([35, 255, 255])
+
+    unhealthy_brown_lower = np.array([10, 50, 50])
+    unhealthy_brown_upper = np.array([20, 255, 200])
+
+
+    mask_healthy = cv2.inRange(hsv, healthy_lower, healthy_upper)
+    mask_unhealthy_yellow = cv2.inRange(hsv, unhealthy_yellow_lower, unhealthy_yellow_upper)
+    mask_unhealthy_brown = cv2.inRange(hsv, unhealthy_brown_lower, unhealthy_brown_upper)
+
+
+    combined_mask = mask_healthy + mask_unhealthy_yellow + mask_unhealthy_brown
+
+
+    kernel = np.ones((5, 5), np.uint8)
+    combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
+    combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, kernel)
+
+
+    contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    if contours:
+
+        largest_contour = max(contours, key=cv2.contourArea)
+        plant_mask = np.zeros_like(combined_mask)
+        cv2.drawContours(plant_mask, [largest_contour], -1, 255, thickness=cv2.FILLED)
+
+
+        plant = cv2.bitwise_and(image, image, mask=plant_mask)
+
+        total_pixels = cv2.countNonZero(plant_mask)
+        healthy_pixels = cv2.countNonZero(mask_healthy)
+        unhealthy_yellow_pixels = cv2.countNonZero(mask_unhealthy_yellow)
+        unhealthy_brown_pixels = cv2.countNonZero(mask_unhealthy_brown)
+
+        healthy_percentage = (healthy_pixels / total_pixels) * 100
+        unhealthy_yellow_percentage = (unhealthy_yellow_pixels / total_pixels) * 100
+        unhealthy_brown_percentage = (unhealthy_brown_pixels / total_pixels) * 100
+
+
+        if healthy_percentage > 70:
+            health_status = "Healthy"
+        elif (50 < healthy_percentage <= 70) and (15 < unhealthy_yellow_percentage <= 35) and (unhealthy_brown_percentage <= 25):
+            health_status = "Moderate"
+        elif unhealthy_yellow_percentage > 30 or unhealthy_brown_percentage > 20:
+            health_status = "Unhealthy"
+        else:
+            health_status = "Unknown"
+
+
+
+        print(f"Healthy Pixels: {healthy_pixels} ({healthy_percentage:.2f}%)")
+        print(f"Unhealthy Yellow Pixels: {unhealthy_yellow_pixels} ({unhealthy_yellow_percentage:.2f}%)")
+        print(f"Unhealthy Brown Pixels: {unhealthy_brown_pixels} ({unhealthy_brown_percentage:.2f}%)")
+        print(f"Plant Health Status: {health_status}")
+        print(f"\n")
+
+
+        recommendations = {
+            "Healthy": "Your plant looks healthy! Continue regular care, ensuring it gets adequate light, water, and nutrients.",
+            "Moderate": "Your plant shows some signs of stress. Consider the following:\n"
+                        "1. Check soil moisture levels and adjust watering frequency.\n"
+                        "2. Ensure the plant gets adequate light, but avoid direct harsh sunlight.\n"
+                        "3. Check for signs of pests and diseases.\n"
+                        "4. Consider feeding with a balanced fertilizer.",
+            "Unhealthy": "Your plant appears to be unhealthy. Take the following steps:\n"
+                         "1. Watering: Ensure proper watering. Overwatering or underwatering can cause stress. Adjust as needed.\n"
+                         "2. Light: Check if the plant is receiving the appropriate amount of light.\n"
+                         "3. Nutrients: Consider using a suitable fertilizer if the plant is lacking nutrients.\n"
+                         "4. Pest Control: Check for pests and treat accordingly.\n"
+                         "5. Pruning: Remove dead or yellowing leaves to encourage new growth.\n"
+                         "6. Soil: Ensure the soil has good drainage and is not compacted."
+        }
+        print(f"Recommendations: {recommendations[health_status]}")
+        print(f"\n")
+
+
+        plt.figure(figsize=(10, 5))
+
+        plt.subplot(2, 2, 1)
+        plt.title("Original Image")
+        plt.imshow(image_rgb)
+        plt.axis('off')
+
+        plt.subplot(2, 2, 2)
+        plt.title("Healthy Mask")
+        plt.imshow(mask_healthy, cmap='gray')
+        plt.axis('off')
+
+        plt.subplot(2, 2, 3)
+        plt.title("Unhealthy Yellow Mask")
+        plt.imshow(mask_unhealthy_yellow, cmap='gray')
+        plt.axis('off')
+
+        plt.subplot(2, 2, 4)
+        plt.title("Unhealthy Brown Mask")
+        plt.imshow(mask_unhealthy_brown, cmap='gray')
+        plt.axis('off')
+
+        plt.tight_layout()
+        plt.show()
+
+    else:
+        print("No plant detected in the image.")
+
+image_path = ''
+detect_plant_health_and_recommendations(image_path)
+
+upload_button = widgets.FileUpload(accept='image/*', multiple=False)
+
+upload_button.observe(handle_upload, names='value')
+display(upload_button)
